@@ -174,8 +174,12 @@ async function startStdioTransport(): Promise<void> {
 let httpServer: HttpServer | undefined;
 
 export async function startHttpTransport(): Promise<HttpServer> {
-  const s2sSecret = resolveHttpS2sSecret();
-  const port = parseInt(process.env.MCP_HTTP_PORT || "8080", 10);
+const s2sSecret = resolveHttpS2sSecret();
+const copilotApiKey = (process.env.COPILOT_API_KEY ?? "").trim();
+const port = parseInt(process.env.MCP_HTTP_PORT || "8080", 10);
+// export async function startHttpTransport(): Promise<HttpServer> {
+  // const s2sSecret = resolveHttpS2sSecret();
+  // const port = parseInt(process.env.MCP_HTTP_PORT || "8080", 10);
   // Loopback unless the operator opts into a wider bind. A wider bind is
   // honored only when CONDUIT_S2S_SECRET is set. The insecure-dev bypass
   // always listens on 127.0.0.1, including when the image sets 0.0.0.0.
@@ -282,15 +286,43 @@ export async function startHttpTransport(): Promise<HttpServer> {
       // Empty s2sSecret is only reachable when MCP_ALLOW_INSECURE_DEV=1;
       // startup refuses otherwise. A configured secret is always enforced,
       // before any credential extraction.
-      if (s2sSecret && !verifyS2sHeader(headerValue(req.headers[S2S_HEADER]), s2sSecret)) {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            error: "Missing or invalid X-Gateway-S2S header: this endpoint only accepts requests signed by the gateway.",
-          })
-        );
-        return;
-      }
+
+const validS2s =
+  s2sSecret &&
+  verifyS2sHeader(
+    headerValue(req.headers[S2S_HEADER]),
+    s2sSecret
+  );
+
+const suppliedApiKey = headerValue(req.headers["x-api-key"]);
+
+const validCopilotApiKey =
+  copilotApiKey &&
+  suppliedApiKey &&
+  timingSafeEqual(
+    createHash("sha256").update(suppliedApiKey).digest(),
+    createHash("sha256").update(copilotApiKey).digest(),
+  );
+
+if (!validS2s && !validCopilotApiKey) {
+  res.writeHead(401, { "Content-Type": "application/json" });
+  res.end(
+    JSON.stringify({
+      error: "Missing or invalid authentication.",
+    })
+  );
+  return;
+}
+
+     // if (s2sSecret && !verifyS2sHeader(headerValue(req.headers[S2S_HEADER]), s2sSecret)) {
+      //  res.writeHead(401, { "Content-Type": "application/json" });
+      //  res.end(
+      //    JSON.stringify({
+      //      error: "Missing or invalid X-Gateway-S2S header: this endpoint only accepts requests signed by the gateway.",
+      //    })
+      //  );
+      //  return;
+     // }
 
       if (req.method !== "POST") {
         res.writeHead(405, { "Content-Type": "application/json" });
